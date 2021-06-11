@@ -1,46 +1,16 @@
 library(readr)
-library(viper)
+library(decoupleR)
 
-setwd("~/Dropbox/kinase_tf_mini_tuto/")
-source("script/viper_functions.R")
+setwd("~/Dropbox/kinase_tf_mini_tuto_simple/")
+# source("script/viper_functions.R")
 
-########## PHOSHO and KINASE part ########
-
-library(OmnipathR)
-
-phospho_differential_analysis <- as.data.frame(
-  read_csv("data/phospho_differential_analysis.csv"))
-
-#format it properlly
-row.names(phospho_differential_analysis) <- phospho_differential_analysis$psite_ID
-phospho_differential_analysis <- phospho_differential_analysis[,-1, drop = F]
-
-#inport KSN from omnipath
-omnipath_ptm <- get_signed_ptms()
-omnipath_ptm <- omnipath_ptm[omnipath_ptm$modification %in% c("dephosphorylation","phosphorylation"),]
-KSN <- omnipath_ptm[,c(4,3)]
-KSN$substrate_genesymbol <- paste(KSN$substrate_genesymbol,omnipath_ptm$residue_type, sep ="_")
-KSN$substrate_genesymbol <- paste(KSN$substrate_genesymbol,omnipath_ptm$residue_offset, sep = "")
-KSN$sign <- ifelse(omnipath_ptm$modification == "phosphorylation", 1, -1)
-
-#Format KSN
-KSN_viper <- df_to_viper_regulon(KSN)
-
-#run viper to get the TF activities from the phosphoproteomic data
-#You can also run that on wour normalised intesity matrix of phosphosites directly,
-#as long as it is formatted as a dataframe of similar format as here
-#User is strongly encouraged to check the viper publication (PMID: 27322546) for more info on the process
-kin_activity <- as.data.frame(viper(eset = phospho_differential_analysis, regulon = KSN_viper, minsize = 5, adaptive.size = F, eset.filter = F))
-kin_activity$ID <- row.names(kin_activity)
-
-kin_activity <- kin_activity[,c(2,1)]
-names(kin_activity) <- c("ID","NES")
 ########## RNA and TF part ########
 
 library(dorothea)
 
 #First we import the dorothea regulons (using only confidence A, B, and C), see dorothea publication for information on confidence levels
 dorothea_df<- as.data.frame(dorothea_hs[dorothea_hs$confidence %in% c("A","B","C"),c(3,1,4)])
+dorothea_df$likelihood <- 1
 
 #import the RNAseq data. It has entrez gene identifiers, but we need it to have gene symbols to match dorothea database, so we have
 #to do some id conversion as well
@@ -63,21 +33,47 @@ names(RNA_differential_analysis)[1] <- "ID"
 RNA_differential_analysis$ID <- gsub(" .*","",RNA_differential_analysis$ID)
 RNA_differential_analysis <- unique(RNA_differential_analysis)
 
-#now we just need to format the differential analysis data into a format that is compatible with viper
-eset <- RNA_differential_analysis$t
-names(eset) <- RNA_differential_analysis$ID
-
-#we also need to format the dorothea dataframe into a viper format
-dorothea_viper <- df_to_viper_regulon(dorothea_df)
+row.names(RNA_differential_analysis) <- RNA_differential_analysis$ID
+RNA_differential_analysis <- RNA_differential_analysis[,"t",drop = F]
 
 #Now we estimate the TF activities using viper
-TF_activities <- as.data.frame(viper(eset = eset, regulon = dorothea_viper, minsize = 10, adaptive.size = F, eset.filter = F, pleiotropy = T))
-TF_activities$TF <- row.names(TF_activities)
+TF_activities <- as.data.frame(run_mean(mat = as.matrix(RNA_differential_analysis), network = dorothea_df, times = 1000))
+TF_activities <- TF_activities[TF_activities$statistic == "normalized_mean",c(2,4,5)]
 
-#that's just to make the dataframe pretty
-TF_activities <- TF_activities[,c(2,1)]
-names(TF_activities) <- c("ID","NES")
+########## PHOSHO and KINASE part ########
 
+library(OmnipathR)
+
+phospho_differential_analysis <- as.data.frame(
+  read_csv("data/phospho_differential_analysis.csv"))
+  
+#format it properlly
+row.names(phospho_differential_analysis) <- phospho_differential_analysis$psite_ID
+phospho_differential_analysis <- phospho_differential_analysis[,-1, drop = F]
+
+#inport KSN from omnipath
+omnipath_ptm <- get_signed_ptms()
+omnipath_ptm <- omnipath_ptm[omnipath_ptm$modification %in% c("dephosphorylation","phosphorylation"),]
+KSN <- omnipath_ptm[,c(4,3)]
+KSN$substrate_genesymbol <- paste(KSN$substrate_genesymbol,omnipath_ptm$residue_type, sep ="_")
+KSN$substrate_genesymbol <- paste(KSN$substrate_genesymbol,omnipath_ptm$residue_offset, sep = "")
+KSN$mor <- ifelse(omnipath_ptm$modification == "phosphorylation", 1, -1)
+KSN$likelihood <- 1
+
+#we remove ambiguous modes of regulations
+KSN$id <- paste(KSN$substrate_genesymbol,KSN$enzyme_genesymbol,sep ="")
+KSN <- KSN[!duplicated(KSN$id),]
+KSN <- KSN[,-5]
+
+#rename KSN to fit decoupler format
+names(KSN)[c(1,2)] <- c("target","tf")
+
+#run viper to get the TF activities from the phosphoproteomic data
+#You can also run that on wour normalised intesity matrix of phosphosites directly,
+#as long as it is formatted as a dataframe of similar format as here
+#User is strongly encouraged to check the viper publication (PMID: 27322546) for more info on the process
+kin_activity <- run_mean(mat = as.matrix(phospho_differential_analysis),network = KSN, times = 1000)
+kin_activity <- kin_activity[kin_activity$statistic == "normalized_mean",c(2,4,5)]
 
 ########## CONCLUSION
 
