@@ -1,9 +1,6 @@
 library(readr)
 library(decoupleR)
 
-setwd("~/Dropbox/kinase_tf_mini_tuto_simple/")
-# source("script/viper_functions.R")
-
 ########## RNA and TF part ########
 
 library(dorothea)
@@ -36,7 +33,7 @@ RNA_differential_analysis <- unique(RNA_differential_analysis)
 row.names(RNA_differential_analysis) <- RNA_differential_analysis$ID
 RNA_differential_analysis <- RNA_differential_analysis[,"t",drop = F]
 
-#Now we estimate the TF activities using viper
+#Now we estimate the TF activities using run_mean from decoupleR
 TF_activities <- as.data.frame(run_mean(mat = as.matrix(RNA_differential_analysis), network = dorothea_df, times = 1000))
 TF_activities <- TF_activities[TF_activities$statistic == "normalized_mean",c(2,4,5)]
 
@@ -68,10 +65,9 @@ KSN <- KSN[,-5]
 #rename KSN to fit decoupler format
 names(KSN)[c(1,2)] <- c("target","tf")
 
-#run viper to get the TF activities from the phosphoproteomic data
-#You can also run that on wour normalised intesity matrix of phosphosites directly,
+#using run_mean from decoupleR to get the TF activities from the phosphoproteomic data
+#You can also run that on wour normalised intensity matrix of phosphosites directly,
 #as long as it is formatted as a dataframe of similar format as here
-#User is strongly encouraged to check the viper publication (PMID: 27322546) for more info on the process
 kin_activity <- run_mean(mat = as.matrix(phospho_differential_analysis),network = KSN, times = 1000)
 kin_activity <- kin_activity[kin_activity$statistic == "normalized_mean",c(2,4,5)]
 
